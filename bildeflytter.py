@@ -73,16 +73,12 @@ def copy_files_by_year(source_dir, destination_dir):
                 if os.path.exists(destination_path):
                     dest_size_mb = os.path.getsize(destination_path) / (1024 * 1024)
                     dest_hash = get_file_hash(destination_path)
-
                     if file_hash == dest_hash:
                         print(f"Skipping {file} - File exists")
                         skipped_files += 1
                         continue
-                    elif file_size_mb > dest_size_mb:
-                        print(f"Replacing {file} in destination - Source file is larger ({file_size_mb:.2f} MB > {dest_size_mb:.2f} MB)")
-                        replaced_files += 1
                     else:
-                        print(f"Skipping {file} ({file_size_mb:.2f} MB) - Larger or same size file already exists in destination ({dest_size_mb:.2f} MB)")
+                        print(f"File-hash not matching {file_path} ({file_size_mb:.2f} MB) and {destination_path} ({dest_size_mb:.2f} MB)")
                         skipped_files += 1
                         continue
 
