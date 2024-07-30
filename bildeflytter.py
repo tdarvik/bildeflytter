@@ -37,6 +37,10 @@ def copy_files_by_year(source_dir, destination_dir):
     )
 
     file_hashes = {}
+    total_files = 0
+    total_size = 0
+    skipped_files = 0
+    replaced_files = 0
 
     for root, _, files in os.walk(source_dir):
         for file in files:
@@ -44,6 +48,10 @@ def copy_files_by_year(source_dir, destination_dir):
                 file_path = os.path.join(root, file)
                 year = get_date_taken(file_path)
                 
+                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                total_size += file_size_mb
+                total_files += 1
+
                 if year is None:
                     year_dir = os.path.join(destination_dir, "Ukjent tid")
                 else:
@@ -55,24 +63,43 @@ def copy_files_by_year(source_dir, destination_dir):
                 file_hash = get_file_hash(file_path)
                 
                 if file_hash in file_hashes:
-                    print(f"Duplicate found: {file} is identical to {file_hashes[file_hash]}")
+                    print(f"Duplicate found: {file} ({file_size_mb:.2f} MB) is identical to {file_hashes[file_hash]}")
+                    skipped_files += 1
                     continue
                 
                 file_hashes[file_hash] = file
 
                 destination_path = os.path.join(year_dir, file)
-                counter = 1
+                if os.path.exists(destination_path):
+                    dest_size_mb = os.path.getsize(destination_path) / (1024 * 1024)
+                    dest_hash = get_file_hash(destination_path)
 
+                    if file_hash == dest_hash:
+                        print(f"Skipping {file} - File exists")
+                        skipped_files += 1
+                        continue
+                    elif file_size_mb > dest_size_mb:
+                        print(f"Replacing {file} in destination - Source file is larger ({file_size_mb:.2f} MB > {dest_size_mb:.2f} MB)")
+                        replaced_files += 1
+                    else:
+                        print(f"Skipping {file} ({file_size_mb:.2f} MB) - Larger or same size file already exists in destination ({dest_size_mb:.2f} MB)")
+                        skipped_files += 1
+                        continue
+
+                counter = 1
                 while os.path.exists(destination_path):
                     name, ext = os.path.splitext(file)
                     destination_path = os.path.join(year_dir, f"{name}_{counter}{ext}")
                     counter += 1
 
-                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-
-                print(f"Copying {file} ({file_size_mb})")
                 shutil.copy2(file_path, destination_path)
-                print(f"Copied {file} to {destination_path}")
+                print(f"Copied {file} ({file_size_mb:.2f} MB) to {destination_path}")
+
+    print(f"\nFinished processing all files.")
+    print(f"Total files processed: {total_files}")
+    print(f"Total size of processed files: {total_size:.2f} MB")
+    print(f"Files skipped (duplicates or smaller): {skipped_files}")
+    print(f"Files replaced in destination: {replaced_files}")
 
 def main():
     parser = argparse.ArgumentParser(description="Copy media files to year-based directories.")
