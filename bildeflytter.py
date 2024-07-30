@@ -2,8 +2,20 @@ import os
 import shutil
 from datetime import datetime
 import argparse
-import hashlib
+import xxhash
 from exif import Image
+import multiprocessing
+from functools import partial
+
+VALID_EXTENSIONS = (
+    # Image formats
+    '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif', '.webp',
+    # Video formats
+    '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v',
+    # RAW formats
+    '.raw', '.arw', '.cr2', '.cr3', '.dng', '.nef', '.nrw', '.orf', 
+    '.raf', '.rw2', '.pef', '.srw', '.x3f'
+)
 
 def get_date_taken(file_path):
     try:
@@ -22,80 +34,64 @@ def get_date_taken(file_path):
         return None
 
 def get_file_hash(file_path):
+    h = xxhash.xxh64()
     with open(file_path, 'rb') as f:
-        return hashlib.md5(f.read()).hexdigest()
+        for chunk in iter(lambda: f.read(8192), b''):
+            h.update(chunk)
+    return h.hexdigest()
+
+def process_file(file_path, destination_dir, file_hashes):
+    if not file_path.lower().endswith(VALID_EXTENSIONS):
+        return
+
+    file_size = os.path.getsize(file_path)
+    file_hash = get_file_hash(file_path)
+    year = get_date_taken(file_path)
+    
+    if file_hash in file_hashes:
+        print(f"Duplicate found: {file_path} ({file_size / (1024 * 1024):.2f} MB) is identical to {file_hashes[file_hash]}")
+        return
+
+    file_hashes[file_hash] = file_path
+
+    if year is None:
+        year_dir = os.path.join(destination_dir, "Unknown_Year")
+    else:
+        year_dir = os.path.join(destination_dir, str(year))
+    
+    os.makedirs(year_dir, exist_ok=True)
+    
+    file_name = os.path.basename(file_path)
+    destination_path = os.path.join(year_dir, file_name)
+    
+    if os.path.exists(destination_path):
+        existing_file_hash = get_file_hash(destination_path)
+        if existing_file_hash == file_hash:
+            print(f"File already exists: {destination_path}")
+            return
+        else:
+            counter = 1
+            name, ext = os.path.splitext(file_name)
+            while os.path.exists(destination_path):
+                destination_path = os.path.join(year_dir, f"{name}_{counter}{ext}")
+                counter += 1
+
+    shutil.copy2(file_path, destination_path)
+    print(f"Copied {file_path} ({file_size / (1024 * 1024):.2f} MB) to {destination_path}")
 
 def copy_files_by_year(source_dir, destination_dir):
-    valid_extensions = (
-        # Image formats
-        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif', '.webp',
-        # Video formats
-        '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v',
-        # RAW formats
-        '.raw', '.arw', '.cr2', '.cr3', '.dng', '.nef', '.nrw', '.orf', 
-        '.raf', '.rw2', '.pef', '.srw', '.x3f'
-    )
-
     file_hashes = {}
-    total_files = 0
-    total_size = 0
-    skipped_files = 0
-    replaced_files = 0
 
+    file_paths = []
     for root, _, files in os.walk(source_dir):
         for file in files:
-            if file.lower().endswith(valid_extensions):
-                file_path = os.path.join(root, file)
-                year = get_date_taken(file_path)
-                
-                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                total_size += file_size_mb
-                total_files += 1
+            if file.lower().endswith(VALID_EXTENSIONS):
+                file_paths.append(os.path.join(root, file))
 
-                if year is None:
-                    year_dir = os.path.join(destination_dir, "Ukjent tid")
-                else:
-                    year_dir = os.path.join(destination_dir, str(year))
-                
-                if not os.path.exists(year_dir):
-                    os.makedirs(year_dir)
-                
-                file_hash = get_file_hash(file_path)
-                
-                if file_hash in file_hashes:
-                    print(f"Duplicate found: {file} ({file_size_mb:.2f} MB) is identical to {file_hashes[file_hash]}")
-                    skipped_files += 1
-                    continue
-                
-                file_hashes[file_hash] = file
+    process_func = partial(process_file, destination_dir=destination_dir, file_hashes=file_hashes)
 
-                destination_path = os.path.join(year_dir, file)
-                if os.path.exists(destination_path):
-                    dest_size_mb = os.path.getsize(destination_path) / (1024 * 1024)
-                    dest_hash = get_file_hash(destination_path)
-                    if file_hash == dest_hash:
-                        print(f"Skipping {file} - File exists")
-                        skipped_files += 1
-                        continue
-                    else:
-                        print(f"File-hash not matching {file_path} ({file_size_mb:.2f} MB) and {destination_path} ({dest_size_mb:.2f} MB)")
-                        skipped_files += 1
-                        continue
-
-                counter = 1
-                while os.path.exists(destination_path):
-                    name, ext = os.path.splitext(file)
-                    destination_path = os.path.join(year_dir, f"{name}_{counter}{ext}")
-                    counter += 1
-
-                shutil.copy2(file_path, destination_path)
-                print(f"Copied {file} ({file_size_mb:.2f} MB) to {destination_path}")
-
-    print(f"\nFinished processing all files.")
-    print(f"Total files processed: {total_files}")
-    print(f"Total size of processed files: {total_size:.2f} MB")
-    print(f"Files skipped (duplicates or smaller): {skipped_files}")
-    print(f"Files replaced in destination: {replaced_files}")
+    with multiprocessing.Pool() as pool:
+        pool.map(process_func, file_paths)
 
 def main():
     parser = argparse.ArgumentParser(description="Copy media files to year-based directories.")
