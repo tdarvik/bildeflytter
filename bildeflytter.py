@@ -72,6 +72,10 @@ def main():
         print(f"Error: Source directory '{source_directory}' does not exist.")
         return
 
+    if not os.path.isdir(destination_directory):
+        print(f"Error: Destination directory '{destination_directory}' does not exist.")
+        return
+
     print(f"Source directory: {source_directory}")
     print(f"Destination directory: {destination_directory}")
 
