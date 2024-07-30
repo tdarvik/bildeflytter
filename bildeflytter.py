@@ -3,8 +3,19 @@ import shutil
 from datetime import datetime
 import argparse
 import hashlib
+from exif import Image
 
 def get_date_taken(file_path):
+    try:
+        with open(file_path, 'rb') as image_file:
+            img = Image(image_file)
+            if img.has_exif:
+                if hasattr(img, 'datetime_original'):
+                    return datetime.strptime(img.datetime_original, '%Y:%m:%d %H:%M:%S').year
+    except:
+        pass
+
+    # Fallback to modified date if EXIF data is not available
     try:
         return datetime.fromtimestamp(os.path.getmtime(file_path)).year
     except:
@@ -51,11 +62,15 @@ def copy_files_by_year(source_dir, destination_dir):
 
                 destination_path = os.path.join(year_dir, file)
                 counter = 1
+
                 while os.path.exists(destination_path):
                     name, ext = os.path.splitext(file)
                     destination_path = os.path.join(year_dir, f"{name}_{counter}{ext}")
                     counter += 1
 
+                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+
+                print(f"Copying {file} ({file_size_mb})")
                 shutil.copy2(file_path, destination_path)
                 print(f"Copied {file} to {destination_path}")
 
