@@ -13,17 +13,14 @@ def get_date_taken(file_path):
                 if hasattr(img, 'datetime_original'):
                     return datetime.strptime(img.datetime_original, '%Y:%m:%d %H:%M:%S').year
     except:
-        pass
-
-    # Fallback to modified date if EXIF data is not available
-    try:
         return datetime.fromtimestamp(os.path.getmtime(file_path)).year
-    except:
-        return None
 
 def get_file_hash(file_path):
-    with open(file_path, 'rb') as f:
-        return hashlib.md5(f.read()).hexdigest()
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
 def copy_files_by_year(source_dir, destination_dir):
     valid_extensions = (
@@ -32,23 +29,25 @@ def copy_files_by_year(source_dir, destination_dir):
         # Video formats
         '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v',
         # RAW formats
-        '.raw', '.arw', '.cr2', '.cr3', '.dng', '.nef', '.nrw', '.orf', 
+        '.raw', '.arw', '.cr2', '.cr3', '.dng', '.nef', '.nrw', '.orf',
         '.raf', '.rw2', '.pef', '.srw', '.x3f'
     )
 
-    file_hashes = {}
+    file_hashes = []
     total_files = 0
     total_size = 0
     skipped_files = 0
-    replaced_files = 0
 
     for root, _, files in os.walk(source_dir):
         for file in files:
             if file.lower().endswith(valid_extensions):
                 file_path = os.path.join(root, file)
                 year = get_date_taken(file_path)
-                
+
                 file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+
+                print(f"Processing {file} ({file_size_mb:.2f} MB)")
+
                 total_size += file_size_mb
                 total_files += 1
 
@@ -56,46 +55,61 @@ def copy_files_by_year(source_dir, destination_dir):
                     year_dir = os.path.join(destination_dir, "Ukjent tid")
                 else:
                     year_dir = os.path.join(destination_dir, str(year))
-                
+
                 if not os.path.exists(year_dir):
                     os.makedirs(year_dir)
-                
+
                 file_hash = get_file_hash(file_path)
-                
+
                 if file_hash in file_hashes:
-                    print(f"Duplicate found: {file} ({file_size_mb:.2f} MB) is identical to {file_hashes[file_hash]}")
+                    print(f"File already exists {file}")
                     skipped_files += 1
                     continue
-                
-                file_hashes[file_hash] = file
+
+                file_hashes.append(file_hash)
 
                 destination_path = os.path.join(year_dir, file)
+
                 if os.path.exists(destination_path):
-                    dest_size_mb = os.path.getsize(destination_path) / (1024 * 1024)
-                    dest_hash = get_file_hash(destination_path)
-                    if file_hash == dest_hash:
-                        print(f"Skipping {file} - File exists")
-                        skipped_files += 1
+                    conflict_file_hash = get_file_hash(destination_path)
+                    
+                    if file_hash == conflict_file_hash:
+                        print(f"File {file} already exists at {destination_path}")
                         continue
                     else:
-                        print(f"File-hash not matching {file_path} ({file_size_mb:.2f} MB) and {destination_path} ({dest_size_mb:.2f} MB)")
-                        skipped_files += 1
-                        continue
+                        counter = 1
+                        while True:
+                            name, ext = os.path.splitext(file)
+                            conflict_path = os.path.join(year_dir, f"{name}_{counter}{ext}")
+                            if not os.path.exists(conflict_path):
+                                destination_path = conflict_path
+                                break
+                            else:
+                                conflict_file_hash = get_file_hash(conflict_path)
+                                if file_hash == conflict_file_hash:
+                                    print(f"File {file} already exists at {conflict_path}")
+                                    destination_path = None
+                                    skipped_files += 1
+                                    break
+                            counter += 1
 
-                counter = 1
-                while os.path.exists(destination_path):
-                    name, ext = os.path.splitext(file)
-                    destination_path = os.path.join(year_dir, f"{name}_{counter}{ext}")
-                    counter += 1
-
-                shutil.copy2(file_path, destination_path)
-                print(f"Copied {file} ({file_size_mb:.2f} MB) to {destination_path}")
+                if destination_path:
+                    shutil.copy2(file_path, destination_path)
+                    print(f"Copied {file} ({file_size_mb:.2f} MB) to {destination_path}")
+                else:
+                    print(f"Skipping {file} as it already exists")            
 
     print(f"\nFinished processing all files.")
     print(f"Total files processed: {total_files}")
     print(f"Total size of processed files: {total_size:.2f} MB")
-    print(f"Files skipped (duplicates or smaller): {skipped_files}")
-    print(f"Files replaced in destination: {replaced_files}")
+    print(f"Files skipped: {skipped_files}")
+
+def check_dir(dir):
+    if not os.path.isdir(dir):
+        print(f"Cannot find dir {dir}")
+        return 0
+    return 1
+
 
 def main():
     parser = argparse.ArgumentParser(description="Copy media files to year-based directories.")
@@ -106,12 +120,7 @@ def main():
     source_directory = os.path.abspath(args.source)
     destination_directory = os.path.abspath(args.destination)
 
-    if not os.path.isdir(source_directory):
-        print(f"Error: Source directory '{source_directory}' does not exist.")
-        return
-
-    if not os.path.isdir(destination_directory):
-        print(f"Error: Destination directory '{destination_directory}' does not exist.")
+    if not (check_dir(source_directory) & check_dir(source_directory)):
         return
 
     print(f"Source directory: {source_directory}")
