@@ -3,15 +3,15 @@ import shutil
 from datetime import datetime
 import argparse
 import hashlib
-from exif import Image
+import exiftool
 
 def get_date_taken(file_path):
     try:
-        with open(file_path, 'rb') as image_file:
-            img = Image(image_file)
-            if img.has_exif:
-                if hasattr(img, 'datetime_original'):
-                    return datetime.strptime(img.datetime_original, '%Y:%m:%d %H:%M:%S').year
+        with exiftool.ExifToolHelper() as et:
+            metadata = et.get_metadata(file_path)
+            for d in metadata:
+                print("{:20.20} {:20.20}".format(d["SourceFile"],
+                                                d["EXIF:DateTimeOriginal"]))
     except:
         return datetime.fromtimestamp(os.path.getmtime(file_path)).year
 
@@ -42,7 +42,6 @@ def copy_files_by_year(source_dir, destination_dir):
         for file in files:
             if file.lower().endswith(valid_extensions):
                 file_path = os.path.join(root, file)
-                year = get_date_taken(file_path)
 
                 file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
 
@@ -51,10 +50,13 @@ def copy_files_by_year(source_dir, destination_dir):
                 total_size += file_size_mb
                 total_files += 1
 
+                year = get_date_taken(file_path)
+
                 if year is None:
                     year_dir = os.path.join(destination_dir, "Ukjent tid")
                 else:
                     year_dir = os.path.join(destination_dir, str(year))
+
 
                 if not os.path.exists(year_dir):
                     os.makedirs(year_dir)
@@ -75,6 +77,7 @@ def copy_files_by_year(source_dir, destination_dir):
                     
                     if file_hash == conflict_file_hash:
                         print(f"File {file} already exists at {destination_path}")
+                        skipped_files += 1
                         continue
                     else:
                         counter = 1
